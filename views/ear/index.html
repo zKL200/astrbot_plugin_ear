@@ -29,9 +29,9 @@
       <label class="row">
         <span>听觉模型</span>
         <select id="model">
-          <option value="qwen3.8-omni-flash">qwen3.8-omni-flash（便宜，默认）</option>
+          <option value="qwen3-omni-flash">qwen3-omni-flash（描述更细，默认）</option>
+          <option value="qwen3.8-omni-flash">qwen3.8-omni-flash（便宜）</option>
           <option value="qwen3.5-omni-flash">qwen3.5-omni-flash</option>
-          <option value="qwen3-omni-flash">qwen3-omni-flash（描述更细）</option>
           <option value="__custom__">自定义…</option>
         </select>
         <input type="text" id="model_custom" placeholder="填模型名，例如 Qwen/Qwen2.5-Omni-7B" hidden />
@@ -51,6 +51,25 @@
       <label class="row">
         <span>主人 QQ 号</span>
         <input type="text" id="owner_qq" placeholder="例如 2158381171" />
+      </label>
+
+      <label class="row">
+        <span>每天最多听几次</span>
+        <input type="number" id="daily_limit" min="0" step="10" placeholder="300（0 = 不限）" />
+        <small class="hint">防止意外刷爆额度</small>
+      </label>
+
+      <h3 class="section">抖音（可选）</h3>
+
+      <label class="row switch">
+        <span>启用抖音听觉</span>
+        <input type="checkbox" id="douyin_enabled" />
+      </label>
+
+      <label class="row">
+        <span>抖音浏览器调试地址</span>
+        <input type="text" id="douyin_cdp_url" placeholder="例如 http://127.0.0.1:9222" />
+        <small class="hint">要一个已登录抖音的浏览器；开起来后听视频的声音</small>
       </label>
 
       <div class="actions">

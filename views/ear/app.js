@@ -9,7 +9,7 @@ const saveMsg = $("saveMsg");
 const modelSel = $("model");
 const modelCustom = $("model_custom");
 
-const PRESETS = ["qwen3.8-omni-flash", "qwen3.5-omni-flash", "qwen3-omni-flash"];
+const PRESETS = ["qwen3-omni-flash", "qwen3.8-omni-flash", "qwen3.5-omni-flash"];
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -36,9 +36,12 @@ async function loadSettings() {
     const s = await bridge.apiGet("settings");
     $("enabled").checked = !!s.enabled;
     $("base_url").value = s.base_url || "";
-    applyModel(s.model || "qwen3.8-omni-flash");
+    applyModel(s.model || "qwen3-omni-flash");
     $("only_owner_private").checked = !!s.only_owner_private;
     $("owner_qq").value = s.owner_qq || "";
+    $("douyin_enabled").checked = !!s.douyin_enabled;
+    $("douyin_cdp_url").value = s.douyin_cdp_url || "";
+    $("daily_limit").value = s.daily_limit ?? 300;
     keyHint.textContent = s.has_key ? `已配置（尾号 ${s.key_tail || "****"}），留空不改` : "还没配置，必需填一个";
     return s;
   } catch (e) {
@@ -71,11 +74,19 @@ async function loadHistory() {
 async function refresh() {
   const s = await loadSettings();
   if (s) {
-    statusEl.textContent = [
+    let used = 0;
+    try {
+      const st = await bridge.apiGet("status");
+      used = st.used_today ?? 0;
+    } catch (e) {}
+    const bits = [
       s.enabled ? "已启用" : "已关闭",
       `共听 ${s.count ?? 0} 条`,
+      s.daily_limit > 0 ? `今日 ${used}/${s.daily_limit}` : "不限次数",
       s.has_key ? "Key 就绪" : "⚠️ 缺 Key",
-    ].join(" · ");
+    ];
+    if (s.douyin_enabled) bits.push(s.douyin_cdp_url ? "抖音已开" : "抖音开了但没填地址");
+    statusEl.textContent = bits.join(" · ");
   }
   await loadHistory();
 }
@@ -93,6 +104,9 @@ $("save").addEventListener("click", async () => {
     model: chosen,
     only_owner_private: $("only_owner_private").checked,
     owner_qq: $("owner_qq").value.trim(),
+    douyin_enabled: $("douyin_enabled").checked,
+    douyin_cdp_url: $("douyin_cdp_url").value.trim(),
+    daily_limit: parseInt($("daily_limit").value || "300", 10),
   };
   const key = $("api_key").value.trim();
   if (key) payload.api_key = key;

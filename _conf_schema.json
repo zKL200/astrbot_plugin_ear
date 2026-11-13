@@ -1,6 +1,6 @@
 {
   "enabled": {
-    "description": "启用听觉",
+    "description": "启用听觉（QQ 语音）",
     "type": "bool",
     "default": true
   },
@@ -15,7 +15,7 @@
     "default": ""
   },
   "model": {
-    "description": "听觉模型（默认 qwen3-omni-flash，描述更细；也可填 Qwen/Qwen2.5-Omni-7B 等）",
+    "description": "听觉模型（默认 qwen3-omni-flash，描述更细）",
     "type": "string",
     "default": "qwen3-omni-flash"
   },
@@ -27,6 +27,21 @@
   "owner_qq": {
     "description": "主人 QQ 号",
     "type": "string",
-    "default": "2158381171"
+    "default": ""
+  },
+  "douyin_enabled": {
+    "description": "启用抖音听觉（需要本机能连接一个已登录抖音的浏览器）",
+    "type": "bool",
+    "default": false
+  },
+  "douyin_cdp_url": {
+    "description": "抖音浏览器调试地址，例如 http://127.0.0.1:9222",
+    "type": "string",
+    "default": ""
+  },
+  "daily_limit": {
+    "description": "每天最多听多少次（0 = 不限制）",
+    "type": "int",
+    "default": 300
   }
 }

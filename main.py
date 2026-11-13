@@ -71,6 +71,37 @@ class EarPlugin(Star):
             logger.info("[ear] 已注册视图接口")
         except Exception as exc:
             logger.warning("[ear] 注册接口失败: %r", exc)
+        try:
+            from astrbot.core.agent.tool import FunctionTool
+
+            async def _listen_handler(event, url: str = "") -> str:
+                import re as _re
+                m = _re.search(r"(\d{15,})", url or "")
+                if not m:
+                    return "这不是一个能识别的抖音作品链接"
+                return await self.hear_douyin(m.group(1))
+
+            self._listen_tool = FunctionTool(
+                name="ear_listen_douyin",
+                description=(
+                    "听一条抖音作品的声音：谁在说什么、有没有音乐、音效、情绪。"
+                    "用户问「这个视频说了什么」「背景音乐是什么」时用。"
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "抖音链接或作品 ID"},
+                    },
+                    "required": ["url"],
+                },
+                handler=_listen_handler,
+                handler_module_path=__name__,
+            )
+            context.add_llm_tools(self._listen_tool)
+            logger.info("[ear] 已注册工具 ear_listen_douyin")
+        except Exception as exc:
+            logger.warning("[ear] 注册抖音听觉工具失败: %r", exc)
+
         logger.info("[ear] 耳朵插件已加载")
 
     # ---------- 数据 ----------
@@ -128,6 +159,8 @@ class EarPlugin(Star):
             "only_owner_private": bool(self._c("only_owner_private", True)),
             "has_key": bool(str(self._c("api_key", "") or "").strip()),
             "count": count,
+            "daily_limit": int(self._c("daily_limit", 300) or 0),
+            "used_today": self._quota_today()[1],
             "data_dir": str(self._data_dir),
         })
 
@@ -149,6 +182,9 @@ class EarPlugin(Star):
             "only_owner_private": bool(self._c("only_owner_private", True)),
             "owner_qq": str(self._c("owner_qq", "") or ""),
             "base_url": str(self._c("base_url", "") or ""),
+            "douyin_enabled": bool(self._c("douyin_enabled", False)),
+            "douyin_cdp_url": str(self._c("douyin_cdp_url", "") or ""),
+            "daily_limit": int(self._c("daily_limit", 300) or 0),
             "has_key": bool(key.strip()),
             "key_tail": key[-4:] if key.strip() else "",
         })
@@ -163,10 +199,17 @@ class EarPlugin(Star):
             patch["enabled"] = payload["enabled"]
         if isinstance(payload.get("only_owner_private"), bool):
             patch["only_owner_private"] = payload["only_owner_private"]
-        for field in ("model", "owner_qq", "base_url"):
+        for field in ("model", "owner_qq", "base_url", "douyin_cdp_url"):
             value = payload.get(field)
             if isinstance(value, str):
                 patch[field] = value.strip()
+        if isinstance(payload.get("douyin_enabled"), bool):
+            patch["douyin_enabled"] = payload["douyin_enabled"]
+        dl = payload.get("daily_limit")
+        if isinstance(dl, (int, float)) and not isinstance(dl, bool):
+            patch["daily_limit"] = max(0, int(dl))
+        elif isinstance(dl, str) and dl.strip().lstrip("-").isdigit():
+            patch["daily_limit"] = max(0, int(dl.strip()))
 
         if payload.get("clear_key") is True:
             patch["api_key"] = ""
@@ -195,6 +238,40 @@ class EarPlugin(Star):
                 pass
         logger.info("[ear] 配置已保存: %s", list(patch))
         return json_response({"saved": True, "keys": list(patch)})
+
+    # ---------- 每日额度 ----------
+    def _quota_path(self) -> pathlib.Path:
+        return self._data_dir / "quota.json"
+
+    def _quota_today(self) -> tuple[str, int]:
+        import datetime
+        today = datetime.date.today().isoformat()
+        try:
+            d = json.loads(self._quota_path().read_text(encoding="utf-8"))
+        except Exception:
+            d = {}
+        if d.get("date") != today:
+            return today, 0
+        return today, int(d.get("count", 0) or 0)
+
+    def _quota_add(self) -> None:
+        import datetime
+        today = datetime.date.today().isoformat()
+        _d, n = self._quota_today()
+        try:
+            self._quota_path().write_text(
+                json.dumps({"date": today, "count": n + 1}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _quota_ok(self) -> bool:
+        limit = int(self._c("daily_limit", 300) or 0)
+        if limit <= 0:
+            return True
+        _d, n = self._quota_today()
+        return n < limit
 
     # ---------- 工具 ----------
     def _c(self, key, default=None):
@@ -292,7 +369,11 @@ class EarPlugin(Star):
         return (data["choices"][0]["message"].get("content") or "").strip()
 
     async def _hear(self, seg) -> tuple[str, float]:
-        src = self._resolve_audio(seg)
+        if not self._quota_ok():
+            logger.warning("[ear] 今天的听觉额度用完了，跳过")
+            return "", 0.0
+        # 下载是阻塞网络 I/O，必须丢到线程里，不能占事件循环
+        src = await asyncio.to_thread(self._resolve_audio, seg)
         if src is None:
             logger.warning("[ear] 找不到可用的音频文件")
             return "", 0.0
@@ -309,7 +390,92 @@ class EarPlugin(Star):
             logger.warning("[ear] Omni 调用失败: %r", exc)
             return "", seconds
         logger.info("[ear] 听到了：%s", heard[:100])
+        self._quota_add()
+        try:
+            wav.unlink(missing_ok=True)
+            src.unlink(missing_ok=True)
+        except Exception:
+            pass
         return heard, seconds
+
+
+    # ---------- 抖音：听视频的声音 ----------
+    async def _grab_douyin_audio_url(self, aweme_id: str) -> tuple[str, dict]:
+        """打开抖音视频页，截出 media-audio 那条真实地址。"""
+        from playwright.async_api import async_playwright
+
+        cdp = str(self._c("douyin_cdp_url", "") or "").strip()
+        if not cdp:
+            return "", {}
+
+        hits: list[tuple[str, dict]] = []
+
+        def on_request(req):
+            u = req.url
+            if ("douyinvod" in u or "/video/tos/" in u) and "audio" in u:
+                hits.append((u, dict(req.headers)))
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.connect_over_cdp(cdp)
+            ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+            page = await ctx.new_page()
+            page.on("request", on_request)
+            try:
+                await page.goto(f"https://www.douyin.com/video/{aweme_id}",
+                                wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(2500)
+                try:
+                    await page.evaluate(
+                        "() => { const v=document.querySelector('video'); if(v){v.muted=true; v.play().catch(()=>{});} }"
+                    )
+                except Exception:
+                    pass
+                for _ in range(15):
+                    await page.wait_for_timeout(1000)
+                    if hits:
+                        break
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+        return hits[0] if hits else ("", {})
+
+    def _fetch_url(self, url: str, headers: dict) -> pathlib.Path | None:
+        keep = {k: v for k, v in headers.items()
+                if k.lower() in ("referer", "user-agent", "cookie")}
+        keep.setdefault("Referer", "https://www.douyin.com/")
+        try:
+            req = urllib.request.Request(url, headers=keep)
+            with urllib.request.urlopen(req, timeout=120) as r:
+                data = r.read()
+            p = pathlib.Path(tempfile.mkdtemp()) / "dy_audio.mp4"
+            p.write_bytes(data)
+            return p
+        except Exception as exc:
+            logger.warning("[ear] 抖音音频下载失败: %r", exc)
+            return None
+
+    async def hear_douyin(self, aweme_id: str) -> str:
+        """听一条抖音作品的声音，返回描述。"""
+        if not bool(self._c("douyin_enabled", False)):
+            return "抖音听觉没开（在配置里打开 douyin_enabled，并填 douyin_cdp_url）"
+        url, headers = await self._grab_douyin_audio_url(aweme_id)
+        if not url:
+            return "没截到音频流：检查 douyin_cdp_url 是不是一个已登录抖音的浏览器调试端口"
+        raw = await asyncio.to_thread(self._fetch_url, url, headers)
+        if raw is None:
+            return "音频下载失败"
+        wav = await asyncio.to_thread(self._to_wav, raw)
+        if wav is None:
+            return "抽音轨失败（可能这条没有声音）"
+        try:
+            heard = await asyncio.to_thread(self._call_omni, wav)
+        except Exception as exc:
+            logger.warning("[ear] Omni 调用失败: %r", exc)
+            return "听觉模型调用失败"
+        logger.info("[ear] 抖音听到了：%s", heard[:100])
+        return heard
 
     # ---------- 注入 ----------
     @filter.on_llm_request(priority=2**31 - 2)
@@ -324,8 +490,16 @@ class EarPlugin(Star):
                 if event.get_group_id():
                     return
                 owner = str(self._c("owner_qq", "") or "").strip()
-                if owner and str(event.get_sender_id()) != owner:
-                    return
+                if owner:
+                    if str(event.get_sender_id()) != owner:
+                        return
+                else:
+                    # 没填主人号时不能放行所有私聊，退化为仅管理员
+                    try:
+                        if not event.is_admin():
+                            return
+                    except Exception:
+                        return
             except Exception:
                 return
         heard, seconds = await self._hear(seg)
@@ -353,15 +527,14 @@ class EarPlugin(Star):
                     part = TextPart(text=block)
                 except Exception:
                     part = None
-        if part is not None:
-            parts.append(part)
-            try:
-                req.extra_user_content_parts = parts
-                logger.info("[ear] 已注入语音描述（%d 段）", len(parts))
-                return
-            except Exception as exc:
-                logger.warning("[ear] 写入失败：%r", exc)
+        if part is None:
+            # 拿不到 TextPart 就不注入：往 system_prompt 里追加动态内容会破坏前缀缓存
+            logger.warning("[ear] 当前 AstrBot 版本没有 TextPart，跳过本次注入")
+            return
 
-        prompt = getattr(req, "system_prompt", "") or ""
-        if MARK not in prompt:
-            req.system_prompt = prompt + "\n\n" + block + "\n"
+        parts.append(part)
+        try:
+            req.extra_user_content_parts = parts
+            logger.info("[ear] 已注入语音描述（%d 段）", len(parts))
+        except Exception as exc:
+            logger.warning("[ear] 写入失败：%r", exc)
