@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>耳朵 · 真听觉</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>耳朵 · 真听觉</h1>
+      <p class="sub">语音不是转成文字，是先用 Omni 模型听一遍：说了什么、什么语气、语速、背景声。</p>
+    </header>
+
+    <section class="card">
+      <h2>配置</h2>
+
+      <label class="row switch">
+        <span>启用听觉</span>
+        <input type="checkbox" id="enabled" />
+      </label>
+
+      <label class="row">
+        <span>接口地址</span>
+        <input type="text" id="base_url" placeholder="留空 = 阿里云 DashScope" />
+        <small class="hint">任何 OpenAI 兼容、支持音频的端点都行</small>
+      </label>
+
+      <label class="row">
+        <span>听觉模型</span>
+        <select id="model">
+          <option value="qwen3.8-omni-flash">qwen3.8-omni-flash（便宜，默认）</option>
+          <option value="qwen3.5-omni-flash">qwen3.5-omni-flash</option>
+          <option value="qwen3-omni-flash">qwen3-omni-flash（描述更细）</option>
+          <option value="__custom__">自定义…</option>
+        </select>
+        <input type="text" id="model_custom" placeholder="填模型名，例如 Qwen/Qwen2.5-Omni-7B" hidden />
+      </label>
+
+      <label class="row">
+        <span>API Key</span>
+        <input type="password" id="api_key" placeholder="留空 = 不修改" autocomplete="off" />
+        <small id="keyHint" class="hint"></small>
+      </label>
+
+      <label class="row switch">
+        <span>只在私聊、只对主人生效</span>
+        <input type="checkbox" id="only_owner_private" />
+      </label>
+
+      <label class="row">
+        <span>主人 QQ 号</span>
+        <input type="text" id="owner_qq" placeholder="例如 2158381171" />
+      </label>
+
+      <div class="actions">
+        <button id="save" class="primary">保存</button>
+        <span id="saveMsg" class="hint"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>听取记录</h2>
+        <div class="actions">
+          <button id="refresh">刷新</button>
+          <button id="clear" class="danger">清空</button>
+        </div>
+      </div>
+      <p id="status" class="hint">读取中…</p>
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="hint" hidden>还没有听过语音。</p>
+    </section>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,116 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f7f8fa;
+  --card: #ffffff;
+  --line: #e5e7eb;
+  --text: #1f2328;
+  --muted: #6b7280;
+  --accent: #3b82f6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121417;
+    --card: #1a1d22;
+    --line: #2a2f37;
+    --text: #e6e8eb;
+    --muted: #8b929c;
+    --accent: #6aa4ff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+header h1 { margin: 0 0 4px; font-size: 20px; }
+header .sub { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.card h2 { margin: 0 0 10px; font-size: 15px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-head h2 { margin: 0; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.row:first-of-type { border-top: none; }
+.row > span { flex: 0 0 190px; color: var(--text); }
+.row input[type="text"], .row input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.row input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 1px; }
+
+.row.switch { justify-content: space-between; }
+.row.switch > span { flex: 1; }
+.row.switch input[type="checkbox"] {
+  appearance: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--line);
+  position: relative;
+  cursor: pointer;
+  transition: background .16s;
+  flex: 0 0 auto;
+}
+.row.switch input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .16s;
+}
+.row.switch input[type="checkbox"]:checked { background: var(--accent); }
+.row.switch input[type="checkbox"]:checked::after { transform: translateX(18px); }
+
+.actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+
+button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger:hover { border-color: #e05555; color: #e05555; }
+
+.hint { color: var(--muted); font-size: 12px; }
+.list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+
+.item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.item .meta { display: flex; gap: 10px; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+.item .heard { white-space: pre-wrap; }

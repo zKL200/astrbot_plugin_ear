@@ -1,0 +1,32 @@
+{
+  "enabled": {
+    "description": "启用听觉",
+    "type": "bool",
+    "default": true
+  },
+  "base_url": {
+    "description": "接口地址（留空 = 阿里云 DashScope）。需 OpenAI 兼容且支持音频输入",
+    "type": "string",
+    "default": ""
+  },
+  "api_key": {
+    "description": "对应供应商的 API Key",
+    "type": "string",
+    "default": ""
+  },
+  "model": {
+    "description": "听觉模型（默认 qwen3-omni-flash，描述更细；也可填 Qwen/Qwen2.5-Omni-7B 等）",
+    "type": "string",
+    "default": "qwen3-omni-flash"
+  },
+  "only_owner_private": {
+    "description": "只在私聊、只对主人生效",
+    "type": "bool",
+    "default": true
+  },
+  "owner_qq": {
+    "description": "主人 QQ 号",
+    "type": "string",
+    "default": "2158381171"
+  }
+}
