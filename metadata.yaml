@@ -9,7 +9,7 @@ desc: |
 
   附带可视化视图：可直接在 WebUI 里改配置、查看每一条语音的听取记录。
   支持任何 OpenAI 兼容、且支持音频输入的端点（DashScope / 硅基流动 等）。
-version: "0.5.0"
+version: "0.5.1"
 author: fy
 repo: https://github.com/zKL200/astrbot_plugin_ear
 astrbot_version: ">=4.13"
