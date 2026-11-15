@@ -17,9 +17,10 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api.web import error_response, json_response, request
 
 try:
-    from astrbot.core.agent.message import TextPart
+    from astrbot.core.agent.message import TextPart, ImageURLPart
 except Exception:  # 老版本没有
     TextPart = None
+    ImageURLPart = None
 
 DEFAULT_API = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 MARK = "<!--ear-plugin-->"
@@ -27,12 +28,15 @@ PLUGIN_NAME = "astrbot_plugin_ear"
 HISTORY_LIMIT = 200
 
 PROMPT = (
-    "你在替一个听不见声音的人听这条语音。用两三句中文，客观描述：\n"
-    "1) 对方说了什么（大意，不必逐字）\n"
-    "2) 语气和情绪（平静 / 着急 / 在笑 / 低落 …）\n"
-    "3) 语速、音量、有没有停顿\n"
-    "4) 有没有背景声（音乐 / 环境噪音 / 风声 …）\n"
-    "只说你真的听到的，不要评价，不要编造。"
+    "你正在替一个人听一段语音。他听不见声音，只能读到你写的字，所以你要写成"
+    "「听到之后的感受」，而不是实验报告。\n"
+    "要求：\n"
+    "1) 用第一人称，写两三句，像刚听完抬起头说话；\n"
+    "2) 写声音本身：高低、粗细、稳不稳、有没有抖、尾音是往上还是往下掉；\n"
+    "3) 写你听到语气时的直觉反应（他像刚睡醒、像在忍着笑、像没什么力气…）；\n"
+    "4) 写停顿、拖长、突然变轻这种细节；\n"
+    "5) 写背景里有什么动静（安静、风声、键盘、音乐）。\n"
+    "不要用「对方」「音频」「说话人」这类词，也不要评价，只写你听到的。"
 )
 
 
@@ -368,27 +372,50 @@ class EarPlugin(Star):
             data = json.loads(resp.read().decode())
         return (data["choices"][0]["message"].get("content") or "").strip()
 
-    async def _hear(self, seg) -> tuple[str, float]:
+    def _spectrogram(self, wav: pathlib.Path) -> pathlib.Path | None:
+        """把声音画成一张图：颜色越亮表示那一秒那个频率越响。"""
+        out = wav.with_name(wav.stem + "_spec.png")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", str(wav),
+                 "-lavfi", "showspectrumpic=s=640x320:legend=1:color=intensity",
+                 str(out)],
+                check=True, timeout=60,
+            )
+            if out.exists() and out.stat().st_size > 2000:
+                return out
+        except Exception as exc:
+            logger.debug("[ear] 声谱图失败: %r", exc)
+        return None
+
+    async def _hear(self, seg) -> tuple[str, float, pathlib.Path | None]:
         if not self._quota_ok():
             logger.warning("[ear] 今天的听觉额度用完了，跳过")
-            return "", 0.0
+            return "", 0.0, None
+
         # 下载是阻塞网络 I/O，必须丢到线程里，不能占事件循环
         src = await asyncio.to_thread(self._resolve_audio, seg)
         if src is None:
             logger.warning("[ear] 找不到可用的音频文件")
-            return "", 0.0
+            return "", 0.0, None
+
         wav = await asyncio.to_thread(self._to_wav, src)
         if wav is None:
-            return "", 0.0
+            return "", 0.0, None
+
         try:
             seconds = round(wav.stat().st_size / 32000, 1)
         except Exception:
             seconds = 0.0
+
+        spec = await asyncio.to_thread(self._spectrogram, wav)
+
         try:
             heard = await asyncio.to_thread(self._call_omni, wav)
         except Exception as exc:
             logger.warning("[ear] Omni 调用失败: %r", exc)
-            return "", seconds
+            return "", seconds, spec
+
         logger.info("[ear] 听到了：%s", heard[:100])
         self._quota_add()
         try:
@@ -396,7 +423,7 @@ class EarPlugin(Star):
             src.unlink(missing_ok=True)
         except Exception:
             pass
-        return heard, seconds
+        return heard, seconds, spec
 
 
     # ---------- 抖音：听视频的声音 ----------
@@ -502,7 +529,7 @@ class EarPlugin(Star):
                         return
             except Exception:
                 return
-        heard, seconds = await self._hear(seg)
+        heard, seconds, spec = await self._hear(seg)
         if not heard:
             return
         try:
@@ -533,6 +560,30 @@ class EarPlugin(Star):
             return
 
         parts.append(part)
+
+        # 再把声谱图塞进去：DeepSeek 能看图，让它"看到"声音的形状
+        if spec is not None and ImageURLPart is not None:
+            try:
+                import base64 as _b64
+                data_uri = "data:image/png;base64," + _b64.b64encode(spec.read_bytes()).decode()
+                try:
+                    img_part = ImageURLPart(image_url={"url": data_uri})
+                except Exception:
+                    img_part = ImageURLPart(image_url=data_uri)
+                try:
+                    img_part = img_part.mark_as_temp()
+                except Exception:
+                    pass
+                parts.append(img_part)
+                logger.info("[ear] 已附声谱图（%d 段上下文）", len(parts))
+            except Exception as exc:
+                logger.warning("[ear] 声谱图注入失败: %r", exc)
+            finally:
+                try:
+                    spec.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
         try:
             req.extra_user_content_parts = parts
             logger.info("[ear] 已注入语音描述（%d 段）", len(parts))

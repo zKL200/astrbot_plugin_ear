@@ -38,10 +38,5 @@
     "description": "抖音浏览器调试地址，例如 http://127.0.0.1:9222",
     "type": "string",
     "default": ""
-  },
-  "daily_limit": {
-    "description": "每天最多听多少次（0 = 不限制）",
-    "type": "int",
-    "default": 300
   }
 }
